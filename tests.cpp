@@ -74,14 +74,14 @@ struct Options {
 int main(const int argc, const char** argv) {
     Options opts;
 
-    args::Parser args("testing", "just a simple testing app");
+    clarg::Parser args("testing", "just a simple testing app");
     args.from(argc, argv)
         .header("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
         .footer("created by: Zach Marcantel <zmarcantel@gmail.com>\n")
         .flag('h', "help", "print this dialog", opts.need_help)
         .count('v', "verbose", "increase the verbosity of the program", opts.verbosity)
         .arg<std::string>('o', "output", "output path for the resulting object/binary",
-                          opts.output, args::Type::DEFAULTED, "FILE")
+                          opts.output, clarg::Type::DEFAULTED, "FILE")
         .flag('w', "warn-all", "toggle all warnings", opts.warn)
         .list<std::vector<std::string>>('W', "warn", "toggle a specific warning", opts.warnings)
         .group("architecture")
@@ -124,6 +124,10 @@ int main(const int argc, const char** argv) {
     assert(opts.positionals.at(0) == "one");
     assert(opts.positionals.at(1) == "two");
     assert(opts.positionals.at(2) == "three");
+
+    #ifndef __EXCEPTIONS
+    assert(args.errors().size() == 0);
+    #endif
 
     std::cout << "\n\n\nParsed:\n" << opts;
 

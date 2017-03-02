@@ -8,8 +8,7 @@
 #include <sstream>
 
 
-namespace args {
-
+namespace clarg {
 
 // generic ctor fallback
 template <typename Into>
@@ -92,17 +91,9 @@ struct Descriptor {
         , display_str(display_str)
         , type(ty)
         , needs(needs)
-    {
-        if (long_name.size() == 1) {
-            throw InputError("long names cannot be single characters");
-        }
-    }
+    {}
 };
 
-
-void print_many(std::size_t n, char c=' ', std::ostream& out=std::cout) {
-    for (std::uint8_t i = 0; i < n; ++i) { out << c; }
-}
 
 struct HelpOptions {
     std::uint16_t width{80};             // max width of the help
@@ -115,6 +106,10 @@ struct HelpOptions {
 
     // internal state
     std::uint16_t longest_prefix{0};       // this field is modified on each arg add to format arg-desc gap
+
+    void print_many(std::size_t n, char c=' ', std::ostream& out=std::cout) const {
+        for (std::uint8_t i = 0; i < n; ++i) { out << c; }
+    }
 
     void print_lines(std::ostream& out=std::cout) const {
         print_many(lines_between, '\n', out);
@@ -165,6 +160,10 @@ struct ParseContext {
     int num_inputs;
     const char** inputs;
 
+    #ifndef __EXCEPTIONS
+    std::vector<std::string> errors;
+    #endif
+
     std::set<char> short_codes;
     std::set<std::string> long_codes;
     std::map<std::string, std::vector<int>> arg_to_indices; // shorts are converted to string
@@ -182,6 +181,17 @@ public:
 
 
 protected:
+    void validate(char s, const std::string& l) {
+        if (l.size() <= 1) {
+            auto err_str = "long names must be more than one character";
+            #ifdef __EXCEPTIONS
+                throw InputError(err_str);
+            #else
+                parse_ctx.errors.emplace_back(err_str);
+            #endif
+        }
+    }
+
     void register_codes(char c, std::string l) {
         bool inserted = false;
         if (c) {
@@ -190,7 +200,12 @@ protected:
             if (not inserted) {
                 std::stringstream ss;
                 ss << "duplicate short code detected: " << (char)c;
-                throw InputError(ss.str());
+                #ifdef __EXCEPTIONS
+                    throw InputError(ss.str());
+                #else
+                    parse_ctx.errors.push_back(ss.str());
+                    return;
+                #endif
             }
         }
 
@@ -200,7 +215,12 @@ protected:
             if (not inserted) {
                 std::stringstream ss;
                 ss << "duplicate long code detected: " << l;
-                throw InputError(ss.str());
+                #ifdef __EXCEPTIONS
+                    throw InputError(ss.str());
+                #else
+                    parse_ctx.errors.push_back(ss.str());
+                    return;
+                #endif
             }
         }
     }
@@ -226,7 +246,13 @@ protected:
             iter = parse_ctx.arg_to_indices.find(l);
             if (iter == parse_ctx.arg_to_indices.end()) {
                 if (needs == Needs::REQUIRED) {
-                    throw UnsetArgument(format_short_long(s,l));
+                    auto err = UnsetArgument(format_short_long(s, l));
+                    #ifdef __EXCEPTIONS
+                        throw err;
+                    #else
+                        parse_ctx.errors.emplace_back(err.what());
+                        return std::make_pair(iter, false);
+                    #endif
                 }
             } else {
                 found = true;
@@ -238,7 +264,7 @@ protected:
         return std::make_pair(iter, found);
     }
 
-    decltype(ParseContext::other_indices)::value_type
+    std::pair<decltype(ParseContext::other_indices)::value_type, bool>
     get_and_pop_pos(char s, const std::string& l, std::size_t index) {
         // find the next "unclaimed" and assert it came directly after us
         auto iter = parse_ctx.other_indices.upper_bound(index);
@@ -246,14 +272,19 @@ protected:
             if (*iter != (int)(index+1)) {
                 std::stringstream ss;
                 ss << "no argument given to " << format_short_long(s, l);
-                throw ParseError(ss.str());
+                #ifdef __EXCEPTIONS
+                    throw ParseError(ss.str());
+                #else
+                    parse_ctx.errors.push_back(ss.str());
+                    return std::make_pair(0, false);
+                #endif
             }
         }
 
         auto result = *iter;
         parse_ctx.other_indices.erase(iter);
 
-        return result;
+        return std::make_pair(result, true);
     }
 
 
@@ -292,6 +323,7 @@ public:
             char s, std::string l, std::string d, bool& into, bool inverted=false,
             Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL
     ) {
+        validate(s, l);
         register_codes(s, l);
         if (inverted) {
             args.emplace_back(Descriptor(s, l, d, type, needs, "true"));
@@ -329,6 +361,7 @@ public:
     T& count(char s, std::string l, std::string d, U& into,
              Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL
     ) {
+        validate(s, l);
         register_codes(s, l);
         args.emplace_back(Descriptor(s, l, d, type, needs));
 
@@ -368,6 +401,7 @@ public:
            Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL,
            std::string display=""
     ) {
+        validate(s, l);
         register_codes(s, l);
         if (type == Type::DEFAULTED) {
             std::stringstream ss;
@@ -383,13 +417,25 @@ public:
 
         // pop all but the last instance of the arg
         for (std::size_t i = 0; i < (iter.first->second.size() - 1); ++i) {
-            get_and_pop_pos(s,l,iter.first->second.at(i));
+            auto status = get_and_pop_pos(s,l,iter.first->second.at(i));
+            // get_and_pop_pos will throw it's own exception, but if no exceptions, we need to abort here
+            if (not status.second) {
+                #ifndef __EXCEPTIONS
+                std::stringstream ss;
+                ss << "could not get positional for " << format_short_long(s, l);
+                parse_ctx.errors.push_back(ss.str());
+                #endif
+                return self; // should only get hit in non-exception... otherwise should stack unwind
+            }
         }
 
-        auto pos = get_and_pop_pos(s,l,iter.first->second.back());
+        auto pos = get_and_pop_pos(s,l,iter.first->second.back()).first;
 
+        #ifdef __EXCEPTIONS
         try {
+        #endif
             into = From<U>(std::string(parse_ctx.inputs[pos]));
+        #ifdef __EXCEPTIONS
         } catch (const std::invalid_argument& e) {
             std::stringstream ss;
             ss << "error while parsing value of " << format_short_long(s, l) << ": " << e.what();
@@ -399,6 +445,7 @@ public:
             ss << "error while handling " << format_short_long(s, l) << ": " << e.what();
             throw ParseError(ss.str());
         }
+        #endif
 
         return self;
     }
@@ -445,6 +492,7 @@ public:
            Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL,
            std::string display=""
     ) {
+        validate(s, l);
         register_codes(s, l);
         args.emplace_back(Descriptor(s, l, d, type, needs, "", display));
 
@@ -453,9 +501,15 @@ public:
 
         for (auto& i : iter.first->second) {
             auto pos = get_and_pop_pos(s,l,i);
+            #ifndef __EXCEPTIONS
+            if (not pos.second) { return self; } // abort since we do not unwind
+            #endif
 
+            #ifdef __EXCEPTIONS
             try {
-                into.push_back(From<typename U::value_type>(std::string(parse_ctx.inputs[pos])));
+            #endif
+                into.push_back(From<typename U::value_type>(std::string(parse_ctx.inputs[pos.first])));
+            #ifdef __EXCEPTIONS
             } catch (const std::invalid_argument& e) {
                 std::stringstream ss;
                 ss << "error while parsing value of " << format_short_long(s, l) << ": " << e.what();
@@ -465,6 +519,7 @@ public:
                 ss << "error while handling " << format_short_long(s, l) << ": " << e.what();
                 throw ParseError(ss.str());
             }
+            #endif
         }
 
         return self;
@@ -511,7 +566,7 @@ public:
         for (auto& arg : args) {
             auto prefix_len = indent;
 
-            print_many(indent, ' ', out);
+            fmt.print_many(indent, ' ', out);
 
             if (arg.type != Type::POSITIONAL) {
                 // short name
@@ -539,7 +594,7 @@ public:
             }
 
             auto offset_len = 5 + (fmt.longest_prefix - prefix_len);
-            print_many(offset_len, ' ', out);
+            fmt.print_many(offset_len, ' ', out);
 
             // arg description
             fmt.wrap(offset_len+prefix_len, arg.description, out);
@@ -547,7 +602,7 @@ public:
             // if we have a default print it -- NOTE: always starts on a new line
             if (arg.default_str.size()) {
                 out << "\n";
-                print_many(offset_len+prefix_len, ' ', out);
+                fmt.print_many(offset_len+prefix_len, ' ', out);
                 out << "[default: ";
                 fmt.wrap(offset_len+prefix_len, arg.default_str);
                 out << "]";
@@ -660,7 +715,13 @@ public:
     //! Create a parser using the given program name and description.
     Parser(const std::string& progname, const std::string& description)
         : OptionsInterface<Parser>(*this, ctx)
-        , ctx({0, nullptr, {},{},{},{}})
+        , ctx({
+            0, nullptr,
+            #ifndef __EXCEPTIONS
+            {}, // errors vec
+            #endif
+            {},{},{},{}}
+        )
         , progname(progname)
         , description(description)
         , terminator("--")
@@ -710,7 +771,14 @@ public:
             if (is_long(str)) {
                 std::string key(str + 2, len-2);
                 if (i == (argc-1)) { // do we have another
-                    throw ParseError("no argument given to " + key);
+                    std::stringstream ss;
+                    ss << "no argument given to " << key;
+                    #ifdef __EXCEPTIONS
+                        throw ParseError(ss.str());
+                    #else
+                        ctx.errors.push_back(ss.str());
+                        return *this;
+                    #endif
                 }
 
                 auto iter = ctx.arg_to_indices.find(key);
@@ -728,6 +796,13 @@ public:
 
         return *this;
     }
+
+    #ifndef __EXCEPTIONS
+    //! Get all the errors encountered while parsing arguments (and their descriptors).
+    std::vector<std::string>& errors() {
+        return ctx.errors;
+    }
+    #endif
 
     //! Set the program name printed in the help dialog.
     void prog(const std::string& name) { progname = name; }
@@ -759,12 +834,20 @@ public:
         if (parse_ctx.other_indices.empty()) {
             std::stringstream ss;
             ss << "expected a positional argument for: " << l;
-            throw ParseError(ss.str());
+            #ifdef __EXCEPTIONS
+                throw ParseError(ss.str());
+            #else
+                ctx.errors.push_back(ss.str());
+                return *this;
+            #endif
         }
 
         auto iter = parse_ctx.other_indices.begin();
+        #ifdef __EXCEPTIONS
         try {
+        #endif
             into = From<T>(std::string(parse_ctx.inputs[*iter]));
+        #ifdef __EXCEPTIONS
         } catch (const std::invalid_argument& e) {
             std::stringstream ss;
             ss << "error while parsing value of " << l << ": " << e.what();
@@ -774,6 +857,7 @@ public:
             ss << "error while handling " << l << ": " << e.what();
             throw ParseError(ss.str());
         }
+        #endif
 
         parse_ctx.other_indices.erase(iter);
         return *this;
@@ -794,17 +878,21 @@ public:
     template <typename T>
     Parser& gather(T& into) {
         for (auto& iter : parse_ctx.other_indices) {
+            #ifdef __EXCEPTIONS
             try {
+            #endif
                 into.push_back(From<typename T::value_type>(std::string(parse_ctx.inputs[iter])));
+            #ifdef __EXCEPTIONS
             } catch (const std::invalid_argument& e) {
                 std::stringstream ss;
-                ss << "error while parsing value of unnamed positional";
+                ss << "error while parsing value of unnamed positional: " << e.what();
                 throw ParseError(ss.str());
             } catch (const std::exception& e) {
                 std::stringstream ss;
-                ss << "error while handling unnamed positional";
+                ss << "error while handling unnamed positional: " << e.what();
                 throw ParseError(ss.str());
             }
+            #endif
 
             parse_ctx.other_indices.erase(iter);
         }

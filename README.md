@@ -370,3 +370,32 @@ The following additional information can be added to the help dialog.
     * a summation that is printed after the arg list
     * generally used for copyright/author information
     * `Parser::footer(std::string)`
+
+
+
+
+
+error handling
+--------------
+
+Error handling is variant on whether exceptions are disabled (`-fno-exceptions`).
+
+#### with exceptions
+
+When exceptions are enabled, the following types can be thrown:
+
+* clarg::InputError
+    * while parsing the argument descriptors, an error occurred
+* clarg::ParseError
+    * while parsing the argument passed in, an error occurred.
+    * most commonly, this is an exception thrown by the `clarg::From<T>(...)` handler.
+* clarg::UnsetArgument
+    * an argument marked `clarg::Type::REQUIRED` was not given.
+
+
+#### without exceptions
+
+When exceptions are disabled, the parser keeps a `std::vector<std::string>` of errors.
+
+This list can be retrieved using `Parser::errors()`. This vector and function _do not exist_ when
+exceptions are enabled.

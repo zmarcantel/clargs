@@ -11,12 +11,19 @@ CXXFLAGS=   -Wall \
 			-std=c++11 \
 			-fno-inline \
 			-fno-omit-frame-pointer \
-			-fno-optimize-sibling-calls
+			-fno-optimize-sibling-calls \
+			-fno-rtti
+
+CLEANTARGETS=$(OUT) $(OUT).clang $(OUT).gcc
 
 default: $(OUT)
 
 $(OUT):
 	@clang++ $(CXXFLAGS) -o $(OUT) tests.cpp
+
+noexcept:
+	@clang++ $(CXXFLAGS) -fno-exceptions -o $(OUT).clang tests.cpp
+	@g++ $(CXXFLAGS) -fno-exceptions -o $(OUT).gcc tests.cpp
 
 run: $(OUT)
 	@testbed -h \
@@ -31,4 +38,9 @@ run: $(OUT)
 			-W all -W abi -W inline \
 			parse one two three
 
-.PHONY: run
+test: noexcept run
+
+clean:
+	rm -f $(CLEANTARGETS)
+
+.PHONY: run clean
