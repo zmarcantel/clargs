@@ -100,8 +100,8 @@ struct Descriptor {
 };
 
 
-void print_many(std::size_t n, char c=' ') {
-    for (std::uint8_t i = 0; i < n; ++i) { std::cout << c; }
+void print_many(std::size_t n, char c=' ', std::ostream& out=std::cout) {
+    for (std::uint8_t i = 0; i < n; ++i) { out << c; }
 }
 
 struct HelpOptions {
@@ -116,19 +116,19 @@ struct HelpOptions {
     // internal state
     std::uint16_t longest_prefix{0};       // this field is modified on each arg add to format arg-desc gap
 
-    void print_lines() const {
-        print_many(lines_between, '\n');
+    void print_lines(std::ostream& out=std::cout) const {
+        print_many(lines_between, '\n', out);
     }
 
-    void print_indent() const {
-        print_many(indent);
+    void print_indent(std::ostream& out=std::cout) const {
+        print_many(indent, ' ', out);
     }
 
-    void print_group_indent() const {
-        print_many(indent+group_indent);
+    void print_group_indent(std::ostream& out=std::cout) const {
+        print_many(indent+group_indent, ' ', out);
     }
 
-    void wrap(std::uint16_t prefix_len, const std::string& content) const {
+    void wrap(std::uint16_t prefix_len, const std::string& content, std::ostream& out=std::cout) const {
         auto scribe = prefix_len;
         auto desc_it = content.begin();
         while (desc_it != content.end()) {
@@ -148,11 +148,11 @@ struct HelpOptions {
             }
 
             if (should_preempt or scribe == width) {
-                std::cout << std::endl;
+                out << std::endl;
                 print_many(prefix_len);
                 scribe = prefix_len;
             }
-            std::cout << *desc_it;
+            out << *desc_it;
             ++scribe;
             ++desc_it;
         }
@@ -274,7 +274,7 @@ public:
             }
 
             if (a.display_str.size()) {
-                len += 1 + a.display_str.size();
+                len += 1 + a.display_str.size(); // " SOME"
             }
 
             longest_prefix = std::max(longest_prefix, len);
@@ -507,57 +507,57 @@ public:
     // helpers
     //
 
-    void print(std::size_t indent, const HelpOptions& fmt) {
+    void print(std::size_t indent, const HelpOptions& fmt, std::ostream& out=std::cout) {
         for (auto& arg : args) {
             auto prefix_len = indent;
 
-            print_many(indent);
+            print_many(indent, ' ', out);
 
             if (arg.type != Type::POSITIONAL) {
                 // short name
                 prefix_len += 4; // we always have to pad the short
                 if (arg.short_name) {
-                    std::cout << "-" << arg.short_name << ", ";
+                    out << "-" << arg.short_name << ", ";
                 } else {
-                    std::cout << "    ";
+                    out << "    ";
                 }
             }
 
             // long name
             if (arg.long_name.size()) {
                 if (arg.type != Type::POSITIONAL) {
-                    std::cout << "--";
+                    out << "--";
                     prefix_len += 2;
                 }
-                std::cout << arg.long_name;
+                out << arg.long_name;
                 prefix_len += arg.long_name.size();
             }
 
             if (arg.display_str.size()) {
                 prefix_len += 1 + arg.display_str.size();
-                std::cout << " " << arg.display_str;
+                out << " " << arg.display_str;
             }
 
             auto offset_len = 5 + (fmt.longest_prefix - prefix_len);
-            print_many(offset_len);
+            print_many(offset_len, ' ', out);
 
             // arg description
-            fmt.wrap(offset_len+prefix_len, arg.description);
+            fmt.wrap(offset_len+prefix_len, arg.description, out);
 
             // if we have a default print it -- NOTE: always starts on a new line
             if (arg.default_str.size()) {
-                std::cout << "\n";
-                print_many(offset_len+prefix_len);
-                std::cout << "[default: ";
+                out << "\n";
+                print_many(offset_len+prefix_len, ' ', out);
+                out << "[default: ";
                 fmt.wrap(offset_len+prefix_len, arg.default_str);
-                std::cout << "]";
+                out << "]";
             }
 
             // if we wrapped and have request to print an extra line
             if (fmt.line_after_wrap and (arg.description.size() > (fmt.width-offset_len))) {
-                std::cout << std::endl;
+                out << std::endl;
             }
-            std::cout << std::endl;
+            out << std::endl;
         }
     }
 };
@@ -581,10 +581,10 @@ public:
     Parser& done() { return ctx; }
 
     using OptionsInterface<Group>::print;
-    void print(const HelpOptions& fmt) {
+    void print(const HelpOptions& fmt, std::ostream& out=std::cout) {
         fmt.print_indent();
-        std::cout << name << ":" << std::endl;
-        print(fmt.indent + fmt.group_indent, fmt);
+        out << name << ":" << std::endl;
+        print(fmt.indent + fmt.group_indent, fmt, out);
     }
 }; // Group class
 
@@ -632,7 +632,7 @@ protected:
 
     // separate all the required and optional flags
     void partition_args(
-        std::vector<Descriptor>& desc,
+        const std::vector<Descriptor>& desc,
         std::vector<std::string>& opt_short,
         std::vector<std::string>& opt_long,
         std::vector<std::string>& req_opt
@@ -814,7 +814,7 @@ public:
 
     using OptionsInterface<Parser>::print;
     //! Print the help dialog.
-    void print() {
+    void print(std::ostream& out=std::cout) {
         std::vector<std::string> opt_short;
         std::vector<std::string> opt_long;
         std::vector<std::string> req_opt;
@@ -835,7 +835,7 @@ public:
         }
 
 
-        std::cout << progname << " - "  << description << std::endl;
+        out << progname << " - "  << description << std::endl;
         help_opts.print_lines();
 
         std::stringstream usage;
@@ -851,39 +851,47 @@ public:
         if (opt_short.size() and (opt_long.size() or req_opt.size())) { usage << " "; }
         if (opt_long.size()) {
             for (auto& o : opt_long) {
-                usage << "[--" << o << "] ";
+                usage << " [--" << o << "]";
             }
         }
         if (req_opt.size()) {
             for (auto& o : req_opt) {
-                usage << "[" << (o.size() == 1 ? "-" : "--") << o << "] ";
+                usage << " [" << (o.size() == 1 ? "-" : "--") << o << "]";
             }
         }
-        help_opts.wrap(usage_offset, usage.str()); std::cout << std::endl;
+        for (auto& p : positionals.args) {
+            usage << " " << p.long_name;
+        }
+        help_opts.wrap(usage_offset, usage.str()); out << std::endl;
         
         help_opts.print_lines();
 
         if (long_description.size()) {
             help_opts.wrap(0, long_description);
-            std::cout << std::endl; // newline after content
+            out << std::endl; // newline after content
             help_opts.print_lines();
         }
 
-        print(help_opts.indent, help_opts);
+        print(help_opts.indent, help_opts, out);
         for (auto& g : groups) {
             help_opts.print_lines();
-            g.print(help_opts);
+            g.print(help_opts, out);
         }
 
         help_opts.print_lines();
         help_opts.print_indent();
-        std::cout << "positionals: " << std::endl;
-        positionals.print(help_opts.group_indent, help_opts);
+        out << "positionals: " << std::endl;
+        positionals.print(help_opts.indent, help_opts, out);
 
         if (footer_text.size()) {
             help_opts.print_lines();
             help_opts.wrap(0, footer_text);
         }
+    }
+
+    friend std::ostream& operator<<(std::ostream& s, Parser& p) {
+        p.print(s);
+        return s;
     }
 }; // Parser class
 
