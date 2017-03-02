@@ -388,7 +388,7 @@ public:
         return count(s, std::string(l), std::string(d), into, type, needs);
     }
     template <typename U>
-    T& count(char s, const char* d, T& into,
+    T& count(char s, const char* d, U& into,
              Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL
     ) {
         return count(s, "", d, into, type, needs);
