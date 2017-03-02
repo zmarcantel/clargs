@@ -182,6 +182,16 @@ public:
 
 protected:
     void validate(char s, const std::string& l) {
+        if (s != 0 and (s < '!' or s > '~')) {
+            std::cout << "got unprintable: " << (std::uint16_t)s << std::endl;
+            auto err_str = "short names must be printable character within the non-extended ASCII set";
+            #ifdef __EXCEPTIONS
+                throw InputError(err_str);
+            #else
+                parse_ctx.errors.emplace_back(err_str);
+            #endif
+        }
+
         if (l.size() <= 1) {
             auto err_str = "long names must be more than one character";
             #ifdef __EXCEPTIONS
