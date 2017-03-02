@@ -192,7 +192,7 @@ protected:
             #endif
         }
 
-        if (l.size() <= 1) {
+        if (l.size() == 1) {
             auto err_str = "long names must be more than one character";
             #ifdef __EXCEPTIONS
                 throw InputError(err_str);
@@ -333,6 +333,10 @@ public:
             char s, std::string l, std::string d, bool& into, bool inverted=false,
             Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL
     ) {
+        #ifndef __EXCEPTIONS
+        if (parse_ctx.errors.size()) { return self; } // early abort
+        #endif
+
         validate(s, l);
         register_codes(s, l);
         if (inverted) {
@@ -371,6 +375,10 @@ public:
     T& count(char s, std::string l, std::string d, U& into,
              Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL
     ) {
+        #ifndef __EXCEPTIONS
+        if (parse_ctx.errors.size()) { return self; } // early abort
+        #endif
+
         validate(s, l);
         register_codes(s, l);
         args.emplace_back(Descriptor(s, l, d, type, needs));
@@ -411,6 +419,10 @@ public:
            Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL,
            std::string display=""
     ) {
+        #ifndef __EXCEPTIONS
+        if (parse_ctx.errors.size()) { return self; } // early abort
+        #endif
+
         validate(s, l);
         register_codes(s, l);
         if (type == Type::DEFAULTED) {
@@ -439,12 +451,15 @@ public:
             }
         }
 
-        auto pos = get_and_pop_pos(s,l,iter.first->second.back()).first;
+        auto pos = get_and_pop_pos(s,l,iter.first->second.back());
+        if (not pos.second) {
+            return self; // again, only hit in non-exception cases
+        }
 
         #ifdef __EXCEPTIONS
         try {
         #endif
-            into = From<U>(std::string(parse_ctx.inputs[pos]));
+            into = From<U>(std::string(parse_ctx.inputs[pos.first]));
         #ifdef __EXCEPTIONS
         } catch (const std::invalid_argument& e) {
             std::stringstream ss;
@@ -502,6 +517,10 @@ public:
            Type type=Type::NORMAL, Needs needs=Needs::OPTIONAL,
            std::string display=""
     ) {
+        #ifndef __EXCEPTIONS
+        if (parse_ctx.errors.size()) { return self; } // early abort
+        #endif
+
         validate(s, l);
         register_codes(s, l);
         args.emplace_back(Descriptor(s, l, d, type, needs, "", display));
@@ -511,9 +530,7 @@ public:
 
         for (auto& i : iter.first->second) {
             auto pos = get_and_pop_pos(s,l,i);
-            #ifndef __EXCEPTIONS
-            if (not pos.second) { return self; } // abort since we do not unwind
-            #endif
+            if (not pos.second) { return self; } // under exceptions, stack should be unwound and this never hit
 
             #ifdef __EXCEPTIONS
             try {
@@ -748,8 +765,8 @@ public:
         for (int i = 1; i < argc; ++i) {
             const char* str = argv[i];
             auto len = strlen(str); // TODO: :( strlen
-            if (len == 0) { continue; } // TODO: what to do?
 
+            if (len == 0) { continue; } // TODO: what to do?
 
             // check if it's the terminator and if so, continue
             if (len == terminator.size() and strncmp(str, terminator.c_str(), len) == 0) {
@@ -839,6 +856,10 @@ public:
 
     template <typename T>
     Parser& pos(std::string l, std::string d, T& into) {
+        #ifndef __EXCEPTIONS
+        if (parse_ctx.errors.size()) { return self; } // early abort
+        #endif
+
         positionals.args.emplace_back(Descriptor(0, l, d, Type::POSITIONAL));
 
         if (parse_ctx.other_indices.empty()) {
@@ -887,6 +908,10 @@ public:
 
     template <typename T>
     Parser& gather(T& into) {
+        #ifndef __EXCEPTIONS
+        if (parse_ctx.errors.size()) { return self; } // early abort
+        #endif
+
         for (auto& iter : parse_ctx.other_indices) {
             #ifdef __EXCEPTIONS
             try {
