@@ -15,7 +15,7 @@ CXXFLAGS=   -Wall \
 			-fno-rtti
 
 
-TESTARGS=   -h \
+TESTARGS=   --help \
 			-m 100 \
 			--word-size 128 --word-aligned \
 			-vvvvvvv \
@@ -46,9 +46,9 @@ test: clean $(OUT) noexcept
 	@echo "\n\n================= DEFAULT        =================\n\n"
 	@$(OUT) $(TESTARGS)
 	@echo "\n\n================= GCC NOEXCEPT   =================\n\n"
-	@$(OUT).gcc $(TESTARGS)
+	$(OUT).gcc $(TESTARGS)
 	@echo "\n\n================= CLANG NOEXCEPT =================\n\n"
-	@$(OUT).clang $(TESTARGS)
+	$(OUT).clang $(TESTARGS)
 
 clean:
 	rm -f $(CLEANTARGETS)

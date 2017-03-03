@@ -797,17 +797,6 @@ public:
             // parse as long
             if (is_long(str)) {
                 std::string key(str + 2, len-2);
-                if (i == (argc-1)) { // do we have another
-                    std::stringstream ss;
-                    ss << "no argument given to " << key;
-                    #ifdef __EXCEPTIONS
-                        throw ParseError(ss.str());
-                    #else
-                        ctx.errors.push_back(ss.str());
-                        return *this;
-                    #endif
-                }
-
                 auto iter = ctx.arg_to_indices.find(key);
                 if (iter == ctx.arg_to_indices.end()) {
                     ctx.arg_to_indices.emplace(key, std::vector<int>{i});
